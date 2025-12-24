@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蒸蚌模拟器</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Zcool+KuaiLe&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #fdfdfd; /* 纸张白 */
+            color: #000;
+            font-family: 'Zcool KuaiLe', cursive, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* 视频隐藏，只用于AI识别 */
+        #webcam {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* 镜像翻转 */
+            opacity: 0; 
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* 游戏主画布 */
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        /* UI 层 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        /* 游戏内控制按钮区域 */
+        #game-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 50;
+            display: none; /* 游戏开始后显示 */
+            pointer-events: auto;
+            gap: 15px;
+        }
+
+        .control-btn {
+            background: white;
+            border: 3px solid black;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 3px 3px 0px 0px black;
+            transition: transform 0.1s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .control-btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 5px 5px 0px 0px black;
+        }
+
+        .control-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px 0px black;
+        }
+
+        .screen {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border: 5px solid black;
+            border-radius: 20px 5px 25px 5px; /* 不规则圆角 */
+            box-shadow: 10px 10px 0px 0px rgba(0,0,0,1);
+            max-width: 80%;
+            display: none; /* 默认隐藏 */
+        }
+
+        .screen.active {
+            display: block;
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 0px #ddd;
+        }
+
+        p {
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+        }
+
+        button.main-btn {
+            font-family: 'Zcool KuaiLe', cursive, sans-serif;
+            font-size: 1.8rem;
+            padding: 15px 40px;
+            background: white;
+            border: 4px solid black;
+            cursor: pointer;
+            transition: transform 0.1s;
+            box-shadow: 5px 5px 0px 0px black;
+            margin: 10px;
+        }
+
+        button.main-btn:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 7px 7px 0px 0px black;
+        }
+
+        button.main-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px 0px black;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: wait;
+        }
+
+        /* 加载动画 */
+        .loader {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #000;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        /* 闪红特效 */
+        #flash-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: red;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 30;
+            mix-blend-mode: multiply;
+        }
+
+        .flash-anim {
+            animation: flash 0.2s ease-out 3;
+        }
+
+        @keyframes flash {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 0.5; }
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="game-canvas"></canvas>
+    <div id="flash-overlay"></div>
+
+    <!-- 游戏内控制按钮 -->
+    <div id="game-controls">
+        <button id="pause-btn" class="control-btn" title="暂停">⏸️</button>
+        <button id="restart-ingame-btn" class="control-btn" title="重新开始">🔄</button>
+    </div>
+
+    <div id="ui-layer">
+        <!-- 加载屏 -->
+        <div id="loading-screen" class="screen active">
+            <h1>蒸蚌模拟器</h1>
+            <div class="loader"></div>
+            <p>正在召唤 AI 铲屎官...</p>
+            <p style="font-size: 1rem; color: #666;">请允许摄像头权限以控制猫爪</p>
+        </div>
+
+        <!-- 开始屏 -->
+        <div id="start-screen" class="screen">
+            <h1>蒸蚌模拟器</h1>
+            <p>第一人称体验猫咪选冻干的快乐！</p>
+            <p style="font-size: 1.2rem;">伸出食指 ☝️ 移动猫爪<br>停留在物品上进行选择</p>
+            <button id="start-btn" class="main-btn">开始挑战</button>
+        </div>
+
+        <!-- 暂停屏 -->
+        <div id="pause-screen" class="screen">
+            <h1>游戏暂停</h1>
+            <p>猫咪正在思考猫生...</p>
+            <button id="resume-btn" class="main-btn">继续骗吃骗喝</button>
+            <button id="quit-btn" class="main-btn">重开一局</button>
+        </div>
+
+        <!-- 结算屏 -->
+        <div id="game-over-screen" class="screen">
+            <h1>三花智商鉴定中心</h1>
+            <div id="result-content"></div>
+            <br>
+            <button id="restart-btn" class="main-btn">不服！再来！</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm";
+
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const uiScreens = document.querySelectorAll('.screen');
+    const flashOverlay = document.getElementById('flash-overlay');
+    const gameControls = document.getElementById('game-controls');
+
+    // 游戏状态
+    let handLandmarker = null;
+    let webcamRunning = false;
+    let lastVideoTime = -1;
+    let results = undefined;
+    
+    // 游戏核心变量
+    let gameState = 'LOADING'; // LOADING, MENU, PLAYING, PAUSED, GAMEOVER
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    
+    // 关卡数据
+    let targetItem = null; 
+    let itemsOnScreen = [];
+    let levelStartTime = 0;
+    let levelDuration = 5000;
+    let timeLeft = 0;
+    let pauseTime = 0; // 记录暂停时刻的时间
+
+    // 手势与交互
+    let cursor = { x: -100, y: -100, active: false }; 
+    let hoverItem = null;
+    let hoverStartTime = 0;
+    const HOVER_THRESHOLD = 500; 
+
+    // 特效状态
+    let feedbackText = null; 
+    let feedbackTimer = 0;
+
+    // 物品定义
+    const ITEM_TYPES = ['carrot', 'tissue', 'slipper', 'cucumber', 'mouse', 'fish', 'ball', 'can'];
+    const ITEM_NAMES = {
+        'carrot': '胡萝卜',
+        'tissue': '纸巾',
+        'slipper': '拖鞋',
+        'cucumber': '黄瓜',
+        'mouse': '老鼠',
+        'fish': '小鱼',
+        'ball': '毛球',
+        'can': '罐头'
+    };
+
+    // 音频上下文
+    let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // ----------- 初始化 AI -----------
+    async function createHandLandmarker() {
+        try {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+            );
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 1
+            });
+            showScreen('start-screen');
+            gameState = 'MENU';
+            
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        } catch (e) {
+            console.error(e);
+            alert("AI 加载失败，请检查网络或刷新页面");
+        }
+    }
+
+    // ----------- 摄像头控制 -----------
+    function enableCam() {
+        if (!handLandmarker) return;
+        
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+
+        const constraints = { video: { width: 1280, height: 720 } };
+        navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+            video.srcObject = stream;
+            video.addEventListener("loadeddata", predictWebcam);
+            webcamRunning = true;
+            startGame();
+        });
+    }
+
+    // ----------- 游戏逻辑 -----------
+    function startGame() {
+        score = 0;
+        lives = 3;
+        level = 1;
+        gameState = 'PLAYING';
+        hideAllScreens();
+        gameControls.style.display = 'flex'; // 显示控制按钮
+        nextLevel();
+    }
+
+    function togglePause() {
+        if (gameState === 'PLAYING') {
+            gameState = 'PAUSED';
+            pauseTime = Date.now();
+            showScreen('pause-screen');
+            gameControls.style.display = 'none'; // 暂停时隐藏小按钮
+        } else if (gameState === 'PAUSED') {
+            // 恢复游戏：调整开始时间，使得倒计时接续
+            const pausedDuration = Date.now() - pauseTime;
+            levelStartTime += pausedDuration;
+            
+            // 如果是在悬停途中暂停的，重置悬停
+            hoverItem = null;
+            
+            gameState = 'PLAYING';
+            hideAllScreens();
+            gameControls.style.display = 'flex';
+        }
+    }
+
+    function nextLevel() {
+        level++;
+        hoverItem = null;
+        feedbackText = null;
+
+        let numItems = 2;
+        if (level > 3) numItems = 3;
+        if (level > 7) numItems = 4;
+        if (level > 12) numItems = 5;
+        if (level > 18) numItems = 6; 
+
+        levelDuration = Math.max(1200, 5000 - (level * 150)); 
+
+        const availableItems = [...ITEM_TYPES];
+        const targetIndex = Math.floor(Math.random() * availableItems.length);
+        targetItem = availableItems[targetIndex];
+        
+        itemsOnScreen = [];
+        let currentLevelItems = [targetItem];
+        
+        while (currentLevelItems.length < numItems) {
+            const randomItem = availableItems[Math.floor(Math.random() * availableItems.length)];
+            currentLevelItems.push(randomItem);
+        }
+        
+        currentLevelItems.sort(() => Math.random() - 0.5);
+        calculateLayout(currentLevelItems);
+        
+        levelStartTime = Date.now();
+    }
+
+    function calculateLayout(items) {
+        // --- 修复第一关布局 BUG 开始 ---
+        // 强制使用当前窗口的真实尺寸，而不是可能尚未更新的 canvas 尺寸
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        // --- 修复结束 ---
+
+        const w = canvas.width;
+        const h = canvas.height;
+        const count = items.length;
+        const size = Math.min(w, h) * 0.18; 
+        const layoutRadius = Math.min(w, h) * 0.3; 
+        const centerX = w / 2;
+        const centerY = h / 2 + 50;
+
+        itemsOnScreen = items.map((type, index) => {
+            const angleOffset = (level * 0.5); 
+            const angle = (index / count) * Math.PI * 2 + angleOffset;
+            
+            return {
+                type: type,
+                x: centerX + Math.cos(angle) * layoutRadius,
+                y: centerY + Math.sin(angle) * layoutRadius,
+                size: size,
+                hoverProgress: 0,
+                angle: (Math.random() - 0.5) * 0.5 
+            };
+        });
+    }
+
+    function handleSelection(item) {
+        if (item.type === targetItem) {
+            score++;
+            playSound('success'); // 这里会播放“真棒”
+            feedbackText = { text: "蒸蚌!", type: 'good', time: Date.now() };
+            setTimeout(nextLevel, 800);
+        } else {
+            handleFailure();
+        }
+    }
+
+    function handleFailure() {
+        lives--;
+        playSound('fail');
+        triggerFlash();
+        feedbackText = { text: "登登!", type: 'bad', time: Date.now() };
+        
+        if (lives <= 0) {
+            endGame();
+        } else {
+            setTimeout(nextLevel, 1000);
+        }
+    }
+
+    function triggerFlash() {
+        flashOverlay.classList.remove('flash-anim');
+        void flashOverlay.offsetWidth; 
+        flashOverlay.classList.add('flash-anim');
+    }
+
+    function endGame() {
+        gameState = 'GAMEOVER';
+        gameControls.style.display = 'none';
+        
+        let title = "";
+        let comment = "";
+        
+        if (score < 5) {
+            title = "纯纯大冤种";
+            comment = "孩子虽然笨，但是孩子诚实。";
+        } else if (score < 15) {
+            title = "普通小猫咪";
+            comment = "只要我换得够快，错误就追不上我！";
+        } else {
+            title = "绝世神猫";
+            comment = "这不是智商，是对冻干的渴望化作了肌肉记忆！";
+        }
+
+        const html = `
+            <h2 style="font-size:2rem; margin:0;">${title}</h2>
+            <p style="font-size:4rem; font-weight:bold; margin: 10px 0;">${score} 颗</p>
+            <p style="color:#666;">成功骗到的冻干</p>
+            <p style="border-top: 2px dashed #000; padding-top:20px;">"${comment}"</p>
+        `;
+        document.getElementById('result-content').innerHTML = html;
+        showScreen('game-over-screen');
+    }
+
+    // ----------- 渲染循环 -----------
+    async function predictWebcam() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let startTimeMs = performance.now();
+        
+        if (lastVideoTime !== video.currentTime) {
+            lastVideoTime = video.currentTime;
+            results = handLandmarker.detectForVideo(video, startTimeMs);
+        }
+
+        cursor.active = false;
+        if (results.landmarks && results.landmarks.length > 0) {
+            const indexTip = results.landmarks[0][8];
+            cursor.x = (1 - indexTip.x) * canvas.width;
+            cursor.y = indexTip.y * canvas.height;
+            cursor.active = true;
+        }
+
+        drawGame();
+
+        if (webcamRunning) {
+            window.requestAnimationFrame(predictWebcam);
+        }
+    }
+
+    function drawGame() {
+        ctx.fillStyle = '#fdfdfd';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        drawNoise();
+
+        // 无论什么状态，如果是游戏进行中暂停的，背景物品还是要画出来的
+        if (gameState === 'PLAYING' || gameState === 'PAUSED') {
+            
+            // 如果没暂停，更新逻辑
+            if (gameState === 'PLAYING') {
+                updateLogic();
+            }
+
+            // 绘制UI信息
+            drawUI();
+
+            // 绘制目标提示
+            drawTargetPrompt();
+
+            // 绘制物品
+            itemsOnScreen.forEach(item => {
+                drawItem(item);
+            });
+
+            // 绘制反馈特效 (蒸蚌/登登)
+            if (feedbackText && Date.now() - feedbackText.time < 800) {
+                drawFeedback();
+            }
+
+            // 绘制猫爪光标 (暂停时也能看到爪子，但不触发交互)
+            if (cursor.active) {
+                drawCatPaw(cursor.x, cursor.y);
+            }
+
+            // 绘制暂停遮罩
+            if (gameState === 'PAUSED') {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+    }
+
+    function updateLogic() {
+        if (!feedbackText) { 
+            const now = Date.now();
+            const elapsed = now - levelStartTime;
+            timeLeft = Math.max(0, levelDuration - elapsed);
+
+            if (timeLeft <= 0) {
+                handleFailure();
+                return;
+            }
+        }
+
+        let isHoveringAny = false;
+        
+        if (cursor.active && !feedbackText) {
+            itemsOnScreen.forEach(item => {
+                const dx = cursor.x - item.x;
+                const dy = cursor.y - item.y;
+                if (Math.sqrt(dx*dx + dy*dy) < item.size/1.5) {
+                    isHoveringAny = true;
+                    if (hoverItem !== item) {
+                        hoverItem = item;
+                        hoverStartTime = Date.now();
+                    } else {
+                        const hoverDuration = Date.now() - hoverStartTime;
+                        item.hoverProgress = Math.min(1, hoverDuration / HOVER_THRESHOLD);
+                        if (item.hoverProgress >= 1) {
+                            handleSelection(item);
+                        }
+                    }
+                } else {
+                    item.hoverProgress = 0;
+                }
+            });
+        }
+
+        if (!isHoveringAny) {
+            hoverItem = null;
+            itemsOnScreen.forEach(i => i.hoverProgress = 0);
+        }
+    }
+
+    // ----------- 绘图函数 (灵魂画手风格) -----------
+    
+    function wobbleLine(x1, y1, x2, y2) {
+        const segments = 5;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        for (let i = 1; i < segments; i++) {
+            const t = i / segments;
+            const x = x1 + (x2 - x1) * t + (Math.random() - 0.5) * 5;
+            const y = y1 + (y2 - y1) * t + (Math.random() - 0.5) * 5;
+            ctx.lineTo(x, y);
+        }
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+
+    function drawNoise() {
+        ctx.fillStyle = 'rgba(0,0,0,0.02)';
+        for(let i=0; i<50; i++) {
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            const r = Math.random() * 2;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI*2);
+            ctx.fill();
+        }
+    }
+
+    function drawItem(item) {
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.rotate(item.angle || 0); 
+        
+        if (item.hoverProgress > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 8;
+            ctx.arc(0, 0, item.size/1.2, -Math.PI/2, -Math.PI/2 + (Math.PI*2 * item.hoverProgress));
+            ctx.stroke();
+        }
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const shake = () => (Math.random() - 0.5) * 2;
+
+        if (item.type === 'carrot') {
+            ctx.beginPath();
+            ctx.moveTo(0 + shake(), -item.size/2 + shake());
+            ctx.quadraticCurveTo(item.size/3, -item.size/4, 0, item.size/2);
+            ctx.quadraticCurveTo(-item.size/3, -item.size/4, 0, -item.size/2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, -item.size/2);
+            ctx.lineTo(-20, -item.size/2 - 30);
+            ctx.moveTo(0, -item.size/2);
+            ctx.lineTo(20, -item.size/2 - 30);
+            ctx.stroke();
+            wobbleLine(-10, -10, 10, -5);
+            wobbleLine(-12, 10, 8, 15);
+        } else if (item.type === 'tissue') {
+            ctx.strokeRect(-item.size/2 + shake(), -item.size/3 + shake(), item.size, item.size/1.5);
+            ctx.beginPath();
+            ctx.moveTo(-20, -item.size/3);
+            ctx.quadraticCurveTo(0, -item.size/3 - 50, 20, -item.size/3);
+            ctx.stroke();
+        } else if (item.type === 'slipper') {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, item.size/2, item.size/4, 0, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, 0, item.size/3, Math.PI, 0);
+            ctx.stroke();
+        } else if (item.type === 'cucumber') {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, item.size/6, item.size/1.8, Math.PI/4, 0, Math.PI*2);
+            ctx.stroke();
+            for(let i=0; i<5; i++) {
+                ctx.fillRect((Math.random()-0.5)*20, (Math.random()-0.5)*40, 3, 3);
+            }
+        } else if (item.type === 'mouse') {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, item.size/2.5, item.size/3.5, 0, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.beginPath(); 
+            ctx.arc(-20, -20, 15, 0, Math.PI*2);
+            ctx.arc(20, -20, 15, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.beginPath(); 
+            ctx.moveTo(40, 0);
+            ctx.quadraticCurveTo(70, -20, 80, 10);
+            ctx.stroke();
+        } else if (item.type === 'fish') {
+            ctx.beginPath();
+            ctx.ellipse(0, 0, item.size/2, item.size/4, 0, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.beginPath(); 
+            ctx.moveTo(item.size/2, 0);
+            ctx.lineTo(item.size/2 + 30, -20);
+            ctx.lineTo(item.size/2 + 30, 20);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.beginPath(); 
+            ctx.arc(-20, -10, 5, 0, Math.PI*2);
+            ctx.fill();
+        } else if (item.type === 'ball') {
+            ctx.beginPath();
+            ctx.arc(0, 0, item.size/2.5, 0, Math.PI*2);
+            ctx.stroke();
+            wobbleLine(-20, -20, 20, 20);
+            wobbleLine(-20, 20, 20, -20);
+            wobbleLine(-30, 0, 30, 0);
+        } else if (item.type === 'can') {
+            const w = item.size/1.5;
+            const h = item.size/1.2;
+            ctx.beginPath();
+            ctx.ellipse(0, -h/2, w/2, 10, 0, 0, Math.PI*2); 
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(0, h/2, w/2, 10, 0, 0, Math.PI); 
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(-w/2, -h/2);
+            ctx.lineTo(-w/2, h/2); 
+            ctx.moveTo(w/2, -h/2);
+            ctx.lineTo(w/2, h/2); 
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(-10, 0);
+            ctx.lineTo(10, 0);
+            ctx.moveTo(5, -5);
+            ctx.lineTo(10, 0);
+            ctx.lineTo(5, 5);
+            ctx.stroke();
+        }
+        
+        ctx.fillStyle = '#000';
+        ctx.font = '30px "Zcool KuaiLe"';
+        ctx.textAlign = 'center';
+        ctx.fillText(ITEM_NAMES[item.type], 0, item.size/1.5 + 40);
+
+        ctx.restore();
+    }
+
+    function drawTargetPrompt() {
+        ctx.save();
+        ctx.translate(canvas.width / 2, 80);
+        
+        ctx.fillStyle = '#000';
+        ctx.font = '40px "Zcool KuaiLe"';
+        ctx.textAlign = 'center';
+        ctx.fillText(`找: ${ITEM_NAMES[targetItem]}`, 0, 0);
+
+        const barWidth = 300;
+        const remainingWidth = (timeLeft / levelDuration) * barWidth;
+        
+        ctx.beginPath();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.rect(-barWidth/2, 20, barWidth, 20);
+        ctx.stroke();
+
+        ctx.fillStyle = timeLeft < 1000 ? '#ff0000' : '#000'; 
+        ctx.fillRect(-barWidth/2 + 3, 23, remainingWidth - 6, 14);
+
+        ctx.restore();
+    }
+
+    function drawCatPaw(x, y) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 20, 18, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        const toes = [
+            {ox: -18, oy: -15},
+            {ox: 0, oy: -22},
+            {ox: 18, oy: -15}
+        ];
+        toes.forEach(t => {
+            ctx.beginPath();
+            ctx.ellipse(t.ox, t.oy, 8, 10, 0, 0, Math.PI*2);
+            ctx.fill();
+        });
+
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(0, -35, 5, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawUI() {
+        ctx.save();
+        ctx.translate(50, 50);
+        for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = i < lives ? '#000' : '#ddd';
+            ctx.font = '40px Arial';
+            ctx.fillText('🐟', i * 50, 0);
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(canvas.width - 150, 50);
+        ctx.fillStyle = '#000';
+        ctx.font = '30px "Zcool KuaiLe"';
+        ctx.fillText(`冻干: ${score}`, 0, 0);
+        ctx.restore();
+    }
+
+    function drawFeedback() {
+        if (!feedbackText) return;
+
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2);
+        
+        const age = Date.now() - feedbackText.time;
+        let scale = 1;
+        if (age < 200) {
+            scale = age / 200 * 1.5;
+        } else {
+            scale = 1.5;
+        }
+
+        ctx.scale(scale, scale);
+        ctx.rotate((Math.random()-0.5) * 0.2); 
+
+        ctx.fillStyle = feedbackText.type === 'good' ? '#000' : '#ff0000';
+        ctx.font = 'bold 120px "Zcool KuaiLe"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#fff';
+        ctx.shadowBlur = 10;
+        ctx.fillText(feedbackText.text, 0, 0);
+        
+        if (feedbackText.type === 'good') {
+             for(let i=0; i<8; i++) {
+                 const ang = (i/8)*Math.PI*2;
+                 const dist = 150;
+                 ctx.beginPath();
+                 ctx.arc(Math.cos(ang)*dist, Math.sin(ang)*dist, 10, 0, Math.PI*2);
+                 ctx.fill();
+             }
+        }
+
+        ctx.restore();
+    }
+
+    // ----------- 音效系统 (Web Audio API + TTS) -----------
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+
+        if (type === 'success') {
+            // "Ding" 音效作为底色
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc.start(now);
+            osc.stop(now + 0.3);
+
+            // 【新】“蒸蚌”语音合成
+            if ('speechSynthesis' in window) {
+                // 取消之前的朗读，避免堆积
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance("真棒");
+                u.lang = 'zh-CN';
+                u.rate = 1.3; // 稍微快一点
+                u.pitch = 1.2; // 稍微高一点
+                u.volume = 1.0;
+                window.speechSynthesis.speak(u);
+            }
+
+        } else if (type === 'fail') {
+            // "Buzz"
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, now);
+            osc.frequency.linearRampToValueAtTime(80, now + 0.3);
+            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        }
+    }
+
+    // ----------- 界面控制 -----------
+    function hideAllScreens() {
+        uiScreens.forEach(s => s.classList.remove('active'));
+    }
+
+    function showScreen(id) {
+        hideAllScreens();
+        document.getElementById(id).classList.add('active');
+    }
+
+    // ----------- 事件监听 -----------
+    document.getElementById('start-btn').addEventListener('click', () => {
+        enableCam();
+    });
+
+    document.getElementById('restart-btn').addEventListener('click', () => {
+        startGame();
+    });
+
+    document.getElementById('pause-btn').addEventListener('click', togglePause);
+    
+    document.getElementById('resume-btn').addEventListener('click', togglePause);
+    
+    document.getElementById('quit-btn').addEventListener('click', () => {
+        // 重置到初始状态
+        score = 0;
+        level = 1;
+        startGame();
+    });
+
+    document.getElementById('restart-ingame-btn').addEventListener('click', () => {
+        // 直接重开
+        score = 0;
+        level = 1;
+        startGame();
+    });
+
+    // 启动初始化
+    createHandLandmarker();
+
+</script>
+</body>
+</html>
