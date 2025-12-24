@@ -212,8 +212,8 @@
         <div id="loading-screen" class="screen active">
             <h1>蒸蚌模拟器</h1>
             <div class="loader"></div>
-            <p>正在召唤 AI 铲屎官...</p>
-            <p style="font-size: 1rem; color: #666;">请允许摄像头权限以控制猫爪</p>
+            <p id="loading-text">正在加载本地 AI 模型...</p>
+            <p style="font-size: 1rem; color: #666;">请确保 hand_landmarker.task 在同一目录下</p>
         </div>
 
         <!-- 开始屏 -->
@@ -243,7 +243,7 @@
 </div>
 
 <script type="module">
-    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/+esm";
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm";
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('game-canvas');
@@ -251,6 +251,7 @@
     const uiScreens = document.querySelectorAll('.screen');
     const flashOverlay = document.getElementById('flash-overlay');
     const gameControls = document.getElementById('game-controls');
+    const loadingText = document.getElementById('loading-text');
 
     // 游戏状态
     let handLandmarker = null;
@@ -300,18 +301,33 @@
     
     // ----------- 初始化 AI -----------
     async function createHandLandmarker() {
+        // 设置超时警告
+        const timeoutId = setTimeout(() => {
+            if (gameState === 'LOADING') {
+                alert("加载超时！\n请检查 'hand_landmarker.task' 文件是否已成功上传到 GitHub 仓库根目录，并与 index.html 在同一级。");
+                loadingText.innerText = "加载失败：找不到本地模型文件";
+                loadingText.style.color = "red";
+            }
+        }, 8000); // 缩短超时时间，因为是本地加载
+
         try {
+            loadingText.innerText = "正在初始化 WASM...";
             const vision = await FilesetResolver.forVisionTasks(
-                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
             );
+            
+            loadingText.innerText = "正在加载本地模型...";
             handLandmarker = await HandLandmarker.createFromOptions(vision, {
                 baseOptions: {
-                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    // 【已修改为本地路径】
+                    modelAssetPath: `./hand_landmarker.task`,
                     delegate: "GPU"
                 },
                 runningMode: "VIDEO",
                 numHands: 1
             });
+            
+            clearTimeout(timeoutId);
             showScreen('start-screen');
             gameState = 'MENU';
             
@@ -319,8 +335,10 @@
                 audioCtx.resume();
             }
         } catch (e) {
+            clearTimeout(timeoutId);
             console.error(e);
-            alert("AI 加载失败，请检查网络或刷新页面");
+            loadingText.innerText = "加载出错";
+            alert("AI 加载失败：" + e.message + "\n\n请确认：hand_landmarker.task 文件是否存在于网站根目录？");
         }
     }
 
